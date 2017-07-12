@@ -79,7 +79,13 @@ RUN mkdir -p /opt &&\
     echo "jenkins:jenkins" | chpasswd &&\
     mkdir -p ${JENKINS_HOME} &&\
     chown jenkins:jenkins ${JENKINS_HOME} &&\
-    echo "jenkins ALL=(ALL) NOPASSWD: ALL" >>/etc/sudoers
+    echo "jenkins ALL=(ALL) NOPASSWD: ALL" >>/etc/sudoers &&\
+    echo "Installing aws-cli" &&\
+    cd /tmp &&\
+    curl -s https://s3.amazonaws.com/aws-cli/awscli-bundle.zip -o awscli-bundle.zip &&\
+    unzip awscli-bundle.zip &&\
+    ./awscli-bundle/install -i /usr/local/aws -b /usr/local/bin/aws &&\
+    rm -rf awscli*
 
 VOLUME ${JENKINS_HOME}
 
