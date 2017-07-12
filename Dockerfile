@@ -14,6 +14,7 @@ ENV PATH $PATH:/opt/jdk/bin
 RUN apk add --update \
     	ca-certificates \
 	openssh \
+	curl \
         git \
         mercurial \
         subversion &&\
