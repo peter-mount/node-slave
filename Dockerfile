@@ -28,7 +28,7 @@ ENTRYPOINT  ["/docker-entrypoint.sh"]
 
 # Download and add the pem to the trust store
 RUN mkdir -p /opt &&\
-    curl -jkLH "Cookie: oraclelicense=accept-securebackup-cookie" \
+    curl -sjkLH "Cookie: oraclelicense=accept-securebackup-cookie" \
 	-o java.tar.gz \
 	http://download.oracle.com/otn-pub/java/jdk/${JAVA_VERSION_MAJOR}u${JAVA_VERSION_MINOR}-b${JAVA_VERSION_BUILD}/${URL_ELEMENT}/${JAVA_PACKAGE}-${JAVA_VERSION_MAJOR}u${JAVA_VERSION_MINOR}-linux-x64.tar.gz &&\
     gunzip -c java.tar.gz | tar -xf - -C /opt && rm -f java.tar.gz &&\
