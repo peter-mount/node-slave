@@ -1,7 +1,18 @@
+# ======================================================================
+# Dockerfile to add java & ssh to node to allow us to run node as a
+# jenkins slave.
+# ======================================================================
+
+# jenkins-slave image to pull java from.
+FROM area51/jenkins-slave:latest as slave
+
+# The node slave image
 FROM area51/node
 MAINTAINER Peter Mount <peter@retep.org>
 
 ENV JENKINS_HOME /home/jenkins
+
+ENV GLIBC_VERSION 2.23-r1
 
 ENV JAVA_VERSION_MAJOR 8
 ENV JAVA_VERSION_MINOR 172
@@ -11,59 +22,34 @@ ENV URL_ELEMENT        a58eab1ec242421181065cdc37240b08
 
 ENV PATH $PATH:/opt/jdk/bin
 
-RUN apk add --update \
+# Install glibc (for java) openssh and repositories like git
+RUN apk add --update curl &&\
+    curl -o glibc.apk \
+    	 -L "https://github.com/andyshinn/alpine-pkg-glibc/releases/download/${GLIBC_VERSION}/glibc-${GLIBC_VERSION}.apk" && \
+    apk add --allow-untrusted glibc.apk && \
+    curl -o glibc-bin.apk \
+    	 -L "https://github.com/andyshinn/alpine-pkg-glibc/releases/download/${GLIBC_VERSION}/glibc-bin-${GLIBC_VERSION}.apk" && \
+    apk add --allow-untrusted glibc-bin.apk && \
+    /usr/glibc-compat/sbin/ldconfig /lib /usr/glibc/usr/lib && \
+    echo 'hosts: files mdns4_minimal [NOTFOUND=return] dns mdns4' >> /etc/nsswitch.conf && \
+    rm -f glibc.apk glibc-bin.apk && \
+    apk add --update \
     	ca-certificates \
-	openssh \
-	curl \
-        git \
-        mercurial \
-        subversion &&\
+    	openssh \
+      git \
+      mercurial \
+      subversion &&\
     rm -rf /var/cache/apk/*
 
-COPY keys/* /etc/ssh.cache/
-
+# Install our scripts
 COPY scripts/*.sh /
 
-ENTRYPOINT  ["/docker-entrypoint.sh"]
+# Copy ssh config and java from jenkins-slave
+COPY --from=slave /etc/ssh.cache/ /etc/ssh.cache/
+COPY --from=slave /opt/ /opt/
 
-# Download and add the pem to the trust store
-RUN mkdir -p /opt &&\
-    curl -sjkLH "Cookie: oraclelicense=accept-securebackup-cookie" \
-	-o java.tar.gz \
-	http://download.oracle.com/otn-pub/java/jdk/${JAVA_VERSION_MAJOR}u${JAVA_VERSION_MINOR}-b${JAVA_VERSION_BUILD}/${URL_ELEMENT}/${JAVA_PACKAGE}-${JAVA_VERSION_MAJOR}u${JAVA_VERSION_MINOR}-linux-x64.tar.gz &&\
-    gunzip -c java.tar.gz | tar -xf - -C /opt && rm -f java.tar.gz &&\
-    ln -s /opt/jdk1.${JAVA_VERSION_MAJOR}.0_${JAVA_VERSION_MINOR} /opt/jdk &&\
-    rm -rf /opt/jdk/*src.zip \
-         /opt/jdk/lib/missioncontrol \
-         /opt/jdk/lib/visualvm \
-         /opt/jdk/lib/*javafx* \
-         /opt/jdk/jre/lib/plugin.jar \
-         /opt/jdk/jre/lib/ext/jfxrt.jar \
-         /opt/jdk/jre/bin/javaws \
-         /opt/jdk/jre/lib/javaws.jar \
-         /opt/jdk/jre/lib/desktop \
-         /opt/jdk/jre/plugin \
-         /opt/jdk/jre/lib/deploy* \
-         /opt/jdk/jre/lib/*javafx* \
-         /opt/jdk/jre/lib/*jfx* \
-         /opt/jdk/jre/lib/amd64/libdecora_sse.so \
-         /opt/jdk/jre/lib/amd64/libprism_*.so \
-         /opt/jdk/jre/lib/amd64/libfxplugins.so \
-         /opt/jdk/jre/lib/amd64/libglass.so \
-         /opt/jdk/jre/lib/amd64/libgstreamer-lite.so \
-         /opt/jdk/jre/lib/amd64/libjavafx*.so \
-         /opt/jdk/jre/lib/amd64/libjfx*.so &&\
-    sed -e "s|export PATH=|export PATH=/opt/jdk/bin:|" -i /etc/profile &&\
-    curl -s https://letsencrypt.org/certs/lets-encrypt-x1-cross-signed.pem -o /lets-encrypt-x1-cross-signed.pem &&\
-    curl -s https://letsencrypt.org/certs/lets-encrypt-x2-cross-signed.pem -o /lets-encrypt-x2-cross-signed.pem &&\
-    curl -s https://letsencrypt.org/certs/lets-encrypt-x3-cross-signed.pem -o /lets-encrypt-x3-cross-signed.pem &&\
-    curl -s https://letsencrypt.org/certs/lets-encrypt-x4-cross-signed.pem -o /lets-encrypt-x4-cross-signed.pem &&\
-    /opt/jdk/bin/keytool -trustcacerts -keystore /opt/jdk/jre/lib/security/cacerts -storepass changeit -noprompt -importcert -alias lets-encrypt-x1-cross-signed -file /lets-encrypt-x1-cross-signed.pem &&\
-    /opt/jdk/bin/keytool -trustcacerts -keystore /opt/jdk/jre/lib/security/cacerts -storepass changeit -noprompt -importcert -alias lets-encrypt-x2-cross-signed -file /lets-encrypt-x2-cross-signed.pem &&\
-    /opt/jdk/bin/keytool -trustcacerts -keystore /opt/jdk/jre/lib/security/cacerts -storepass changeit -noprompt -importcert -alias lets-encrypt-x3-cross-signed -file /lets-encrypt-x3-cross-signed.pem &&\
-    /opt/jdk/bin/keytool -trustcacerts -keystore /opt/jdk/jre/lib/security/cacerts -storepass changeit -noprompt -importcert -alias lets-encrypt-x4-cross-signed -file /lets-encrypt-x4-cross-signed.pem &&\
-    rm -f /*.pem &&\
-    chmod 500 /docker-entrypoint.sh &&\
+# Install jenkins user
+RUN chmod 500 /docker-entrypoint.sh &&\
     chmod -f 600 /etc/ssh.cache/ssh_host_* &&\
     mkdir -p ~root/.ssh &&\
     chmod 700 ~root/.ssh/ &&\
@@ -77,19 +63,11 @@ RUN mkdir -p /opt &&\
             -s /bin/ash \
             -D jenkins &&\
     echo "jenkins:jenkins" | chpasswd &&\
+    sed -e "s|export PATH=|export PATH=/opt/jdk/bin:|" -i /etc/profile &&\
     mkdir -p ${JENKINS_HOME} &&\
-    chown jenkins:jenkins ${JENKINS_HOME} &&\
-    echo "jenkins ALL=(ALL) NOPASSWD: ALL" >>/etc/sudoers &&\
-    echo "Installing aws-cli" &&\
-    cd /tmp &&\
-    curl -s https://s3.amazonaws.com/aws-cli/awscli-bundle.zip -o awscli-bundle.zip &&\
-    unzip awscli-bundle.zip &&\
-    ./awscli-bundle/install -i /usr/local/aws -b /usr/local/bin/aws &&\
-    rm -rf awscli* &&\
-    git config --global credential.helper '!/usr/local/bin/aws codecommit credential-helper $@' &&\
-    git config --global credential.useHttpPath true
-
+    chown -R jenkins:jenkins ${JENKINS_HOME}
 
 VOLUME ${JENKINS_HOME}
+ENTRYPOINT  ["/docker-entrypoint.sh"]
 
 EXPOSE 22/tcp
